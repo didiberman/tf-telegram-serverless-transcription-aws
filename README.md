@@ -59,12 +59,7 @@ A 100% serverless, event-driven Telegram bot that transcribes voice notes using 
     ```bash
     terraform apply
     ```
-
-5.  **Set Webhook**:
-    After deployment, Terraform will output a `webhook_url`. Register it with Telegram:
-    ```bash
-    curl -F "url=YOUR_WEBHOOK_URL" https://api.telegram.org/botYOUR_TELEGRAM_TOKEN/setWebhook
-    ```
+    Terraform will automatically register the webhook with Telegram.
 
 ## Usage
 

@@ -142,3 +142,16 @@ resource "aws_s3_bucket_notification" "bucket_notification" {
   depends_on = [aws_lambda_permission.allow_s3]
 }
 
+
+# --- Webhook Automation ---
+
+resource "null_resource" "set_webhook" {
+  triggers = {
+    function_url = aws_lambda_function_url.webhook_url.function_url
+    bot_token    = var.telegram_bot_token
+  }
+
+  provisioner "local-exec" {
+    command = "curl -X POST https://api.telegram.org/bot${var.telegram_bot_token}/setWebhook?url=${aws_lambda_function_url.webhook_url.function_url}"
+  }
+}
