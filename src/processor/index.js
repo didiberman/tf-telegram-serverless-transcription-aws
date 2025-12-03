@@ -37,21 +37,6 @@ exports.handler = async (event) => {
             }
             console.log(`Extracted text: ${transcriptText.substring(0, 50)}...`);
 
-            // 3. Find who to send it to. 
-            // The n8n workflow used the file_unique_id to map back, but here we are stateless.
-            // We need to store the chatId somewhere or encode it in the filename/jobname.
-            // A simple hack: We can't easily pass metadata through Transcribe Output Key without managing it.
-            // 
-            // ALTERNATIVE: We can use S3 Metadata on the INPUT file, but Transcribe doesn't propagate it to output.
-            //
-            // BETTER APPROACH for this simple V1:
-            // Since we don't have a database, we can't look up the ChatID from the JobName easily unless we encode it.
-            // Let's update the Webhook to encode ChatID in the JobName or Output Key.
-            //
-            // Let's assume the Webhook saves the file as `input / CHATID_FILEID.ext`
-            // And output is `output / CHATID_FILEID.json`
-            // Then we can parse ChatID from the key.
-
             // Let's parse the key: output/CHATID_FILEUNIQUEID.json
             const filename = key.split('/').pop(); // CHATID_FILEUNIQUEID.json
             const parts = filename.split('_');
