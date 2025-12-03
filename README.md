@@ -33,7 +33,14 @@ A 100% serverless, event-driven Telegram bot that transcribes voice notes using 
     cd <your-repo-folder>
     ```
 
-2.  **Initialize Terraform**:
+2.  **Configure AWS Credentials**:
+    Ensure you have an AWS account and have configured your credentials so Terraform can access it.
+    ```bash
+    aws configure
+    ```
+    *You will need your Access Key ID and Secret Access Key.*
+
+3.  **Initialize Terraform**:
     ```bash
     terraform init
     ```
