@@ -11,11 +11,13 @@ A 100% serverless, event-driven Telegram bot that transcribes voice notes using 
 -   **Secure**: Uses IAM Roles for internal permissions. No long-term access keys required.
 -   **Usage Tracking**: Tracks total duration and stats per user in DynamoDB.
 -   **Admin Commands**: Manage allowed users dynamically via Telegram commands.
+-   **Secure Webhook**: Verifies a secret token on every webhook request to prevent unauthorized access.
+-   **Modern Runtime**: Powered by Node.js 22.x.
 
 ## Architecture
 
 1.  **User** sends a voice note to the Telegram Bot.
-2.  **Webhook Lambda** receives the update, checks permissions (DynamoDB), downloads the file, and uploads it to S3.
+2.  **Webhook Lambda** receives the update, verifies the **Secret Token**, checks permissions (DynamoDB), downloads the file, and uploads it to S3.
 3.  **AWS Transcribe** job is triggered automatically.
 4.  **Processor Lambda** is triggered when the transcription finishes (S3 Event).
 5.  **Processor Lambda** sends the text back to the user on Telegram, followed by a stats summary.
@@ -63,7 +65,7 @@ A 100% serverless, event-driven Telegram bot that transcribes voice notes using 
     ```bash
     terraform apply
     ```
-    Terraform will automatically register the webhook with Telegram.
+    Terraform will automatically register the webhook with Telegram, including a generated secret token for security.
 
 ## Usage
 
