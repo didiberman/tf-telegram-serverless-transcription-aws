@@ -9,8 +9,7 @@ variable "bucket_name" {
   type        = string
 }
 
-variable "allowed_usernames" {
-  description = "Comma-separated list of allowed Telegram usernames (e.g. 'user1,user2')"
+variable "telegram_admin_username" {
+  description = "The Telegram username of the admin (without @)"
   type        = string
-  default     = ""
 }

@@ -21,6 +21,17 @@ resource "aws_iam_role" "lambda_role" {
   })
 }
 
+resource "aws_dynamodb_table" "usage_table" {
+  name           = "transcription_usage"
+  billing_mode   = "PAY_PER_REQUEST"
+  hash_key       = "PK"
+
+  attribute {
+    name = "PK"
+    type = "S"
+  }
+}
+
 resource "aws_iam_role_policy" "lambda_policy" {
   name = "transcribe_bot_lambda_policy"
   role = aws_iam_role.lambda_role.id
@@ -58,6 +69,16 @@ resource "aws_iam_role_policy" "lambda_policy" {
           "transcribe:ListTranscriptionJobs"
         ]
         Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:UpdateItem",
+          "dynamodb:GetItem",
+          "dynamodb:PutItem",
+          "dynamodb:Scan"
+        ]
+        Resource = aws_dynamodb_table.usage_table.arn
       }
     ]
   })
@@ -78,6 +99,8 @@ data "archive_file" "processor_zip" {
   output_path = "${path.module}/processor.zip"
 }
 
+
+
 # Webhook Lambda
 resource "aws_lambda_function" "webhook" {
   filename         = data.archive_file.webhook_zip.output_path
@@ -90,9 +113,10 @@ resource "aws_lambda_function" "webhook" {
 
   environment {
     variables = {
-      TELEGRAM_TOKEN    = var.telegram_bot_token
-      BUCKET_NAME       = aws_s3_bucket.transcribe_bucket.id
-      ALLOWED_USERNAMES = var.allowed_usernames
+      TELEGRAM_TOKEN = var.telegram_bot_token
+      BUCKET_NAME    = aws_s3_bucket.transcribe_bucket.id
+      USAGE_TABLE    = aws_dynamodb_table.usage_table.name
+      ADMIN_USERNAME = var.telegram_admin_username
     }
   }
 }
@@ -116,6 +140,7 @@ resource "aws_lambda_function" "processor" {
   environment {
     variables = {
       TELEGRAM_TOKEN = var.telegram_bot_token
+      USAGE_TABLE    = aws_dynamodb_table.usage_table.name
     }
   }
 }
@@ -143,15 +168,25 @@ resource "aws_s3_bucket_notification" "bucket_notification" {
 }
 
 
-# --- Webhook Automation ---
 
-resource "null_resource" "set_webhook" {
+# --- Telegram Webhook Automation ---
+
+resource "null_resource" "telegram_webhook" {
   triggers = {
+    # Always update the webhook when the function URL changes
     function_url = aws_lambda_function_url.webhook_url.function_url
-    bot_token    = var.telegram_bot_token
+    # Store token in triggers to be accessible during destroy
+    telegram_token = var.telegram_bot_token
   }
 
+  # Set the webhook on apply
   provisioner "local-exec" {
-    command = "curl -X POST https://api.telegram.org/bot${var.telegram_bot_token}/setWebhook?url=${aws_lambda_function_url.webhook_url.function_url}"
+    command = "curl -s -X POST https://api.telegram.org/bot${var.telegram_bot_token}/setWebhook?url=${aws_lambda_function_url.webhook_url.function_url}"
+  }
+
+  # Remove the webhook on destroy
+  provisioner "local-exec" {
+    when    = destroy
+    command = "curl -s -X POST https://api.telegram.org/bot${self.triggers.telegram_token}/deleteWebhook"
   }
 }
