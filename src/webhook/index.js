@@ -231,9 +231,21 @@ async function sendStats(chatId) {
         msg += `📝 Transcriptions: ${getVal(global, 'total_transcriptions')}\n\n`;
 
         msg += `🌍 *Languages*\n`;
-        const langs = global.seconds_by_language || {};
-        for (const [lang, sec] of Object.entries(langs)) {
-            const count = global.transcriptions_by_language?.[lang] || 0;
+        const rawLangs = global.seconds_by_language || {};
+        const rawCounts = global.transcriptions_by_language || {};
+
+        // Aggregate by normalized language
+        const aggLangs = {};
+        const aggCounts = {};
+
+        for (const [lang, sec] of Object.entries(rawLangs)) {
+            const norm = normalizeLanguage(lang);
+            aggLangs[norm] = (aggLangs[norm] || 0) + sec;
+            aggCounts[norm] = (aggCounts[norm] || 0) + (rawCounts[lang] || 0);
+        }
+
+        for (const [lang, sec] of Object.entries(aggLangs)) {
+            const count = aggCounts[lang] || 0;
             msg += `- ${lang}: ${formatDur(sec)} (${count})\n`;
         }
 
@@ -298,4 +310,9 @@ function downloadFile(url) {
             res.on('end', () => resolve(Buffer.concat(data)));
         }).on('error', reject);
     });
+}
+
+function normalizeLanguage(code) {
+    if (!code) return "UNKNOWN";
+    return code.split('-')[0].toUpperCase();
 }

@@ -42,7 +42,7 @@ exports.handler = async (event) => {
                     transcriptText = transcriptJson.results.transcripts[0].transcript;
                 }
                 if (transcriptJson.results.language_code) {
-                    languageCode = transcriptJson.results.language_code;
+                    languageCode = normalizeLanguage(transcriptJson.results.language_code);
                 }
                 if (transcriptJson.results.items && transcriptJson.results.items.length > 0) {
                     // Iterate backwards to find the last item with an end_time (ignoring punctuation)
@@ -250,4 +250,9 @@ function sendTelegramMessage(chatId, text) {
         req.write(data);
         req.end();
     });
+}
+
+function normalizeLanguage(code) {
+    if (!code) return "UNKNOWN";
+    return code.split('-')[0].toUpperCase();
 }
