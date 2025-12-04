@@ -109,7 +109,7 @@ resource "aws_lambda_function" "webhook" {
   role             = aws_iam_role.lambda_role.arn
   handler          = "index.handler"
   source_code_hash = data.archive_file.webhook_zip.output_base64sha256
-  runtime          = "nodejs18.x"
+  runtime          = "nodejs22.x"
   timeout          = 30
 
   environment {
@@ -117,7 +117,8 @@ resource "aws_lambda_function" "webhook" {
       TELEGRAM_TOKEN = var.telegram_bot_token
       BUCKET_NAME    = aws_s3_bucket.transcribe_bucket.id
       USAGE_TABLE    = aws_dynamodb_table.usage_table.name
-      ADMIN_USERNAME = var.telegram_admin_username
+      ADMIN_USERNAME        = var.telegram_admin_username
+      TELEGRAM_SECRET_TOKEN = random_password.telegram_secret_token.result
     }
   }
 }
@@ -172,6 +173,11 @@ resource "aws_s3_bucket_notification" "bucket_notification" {
 
 # --- Telegram Webhook Automation ---
 
+resource "random_password" "telegram_secret_token" {
+  length  = 32
+  special = false
+}
+
 resource "null_resource" "telegram_webhook" {
   triggers = {
     # Always update the webhook when the function URL changes
@@ -182,7 +188,7 @@ resource "null_resource" "telegram_webhook" {
 
   # Set the webhook on apply
   provisioner "local-exec" {
-    command = "curl -s -X POST https://api.telegram.org/bot${var.telegram_bot_token}/setWebhook?url=${aws_lambda_function_url.webhook_url.function_url}"
+    command = "curl -s -X POST https://api.telegram.org/bot${var.telegram_bot_token}/setWebhook?url=${aws_lambda_function_url.webhook_url.function_url}&secret_token=${random_password.telegram_secret_token.result}"
   }
 
   # Remove the webhook on destroy

@@ -13,11 +13,20 @@ const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const BUCKET_NAME = process.env.BUCKET_NAME;
 const USAGE_TABLE = process.env.USAGE_TABLE;
 const ADMIN_USER = process.env.ADMIN_USERNAME;
+const SECRET_TOKEN = process.env.TELEGRAM_SECRET_TOKEN;
 
 exports.handler = async (event) => {
     console.log('Received event:', JSON.stringify(event));
 
     try {
+        // Security Check
+        const receivedToken = event.headers['x-telegram-bot-api-secret-token'] || event.headers['X-Telegram-Bot-Api-Secret-Token'];
+        if (receivedToken !== SECRET_TOKEN) {
+            console.warn(`Webhook security check failed. Received: "${receivedToken}"`);
+            return { statusCode: 403, body: 'Forbidden' };
+        }
+        console.log('Webhook security check passed.');
+
         const body = JSON.parse(event.body);
 
         // Handle Telegram "pre-checkout" or other service messages if needed
