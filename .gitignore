@@ -1,3 +1,9 @@
 terraform.tfvars
 terraform.tfvars
 .env
+/.terraform
+terraform.tfvars
+webhook.zip
+processor.zip
+terraform.tfstate
+.terraform.lock.hcl
