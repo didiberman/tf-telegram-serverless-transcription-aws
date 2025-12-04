@@ -119,7 +119,7 @@ exports.handler = async (event) => {
 
         // 3. Check permissions
         if (!allowedUsers.has(username)) {
-            await sendTelegramMessage(chatId, "Sorry, you need to ask Didi for permission to use this bot (Transcription costs a bit of $$)");
+            await sendTelegramMessage(chatId, "Sorry, you need to ask the owner for permission to use this bot (Transcription costs a bit of $$)");
             return { statusCode: 200, body: 'Unauthorized' };
         }
 
