@@ -116,10 +116,6 @@ data "archive_file" "streaming_zip" {
 # --- FFmpeg Layer ---
 
 resource "null_resource" "download_ffmpeg" {
-  triggers = {
-    always_run = timestamp()
-  }
-
   provisioner "local-exec" {
     command = <<EOT
       mkdir -p ${path.module}/layers/ffmpeg/bin
