@@ -1,5 +1,6 @@
 const { S3Client, GetObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 const { TranscribeStreamingClient, StartStreamTranscriptionCommand } = require('@aws-sdk/client-transcribe-streaming');
+const { TranscribeClient, StartTranscriptionJobCommand } = require('@aws-sdk/client-transcribe');
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, UpdateCommand, GetCommand } = require('@aws-sdk/lib-dynamodb');
 const https = require('https');
@@ -7,7 +8,8 @@ const { spawn } = require('child_process');
 const path = require('path');
 
 const s3 = new S3Client();
-const transcribe = new TranscribeStreamingClient({ region: process.env.AWS_REGION });
+const transcribeStreaming = new TranscribeStreamingClient({ region: process.env.AWS_REGION });
+const transcribe = new TranscribeClient({ region: process.env.AWS_REGION });
 const ddbClient = new DynamoDBClient();
 const ddbDocClient = DynamoDBDocumentClient.from(ddbClient);
 
@@ -85,7 +87,7 @@ exports.handler = async (event) => {
             AudioStream: audioStream()
         });
 
-        const response = await transcribe.send(command);
+        const response = await transcribeStreaming.send(command);
 
         // 4. Process Stream
         let fullTranscript = "";
@@ -185,7 +187,47 @@ exports.handler = async (event) => {
 
     } catch (error) {
         console.error('Error in streaming processor:', error);
-        await editTelegramMessage(chatId, messageId, "❌ Error processing transcription.");
+
+        if (error.message && (error.message.includes('ECONNRESET') || error.message.includes('ETIMEDOUT') || error.name === 'InternalFailureException' || error.name === 'ServiceUnavailableException')) {
+            console.log('Detected streaming network error. Falling back to batch processing.');
+
+            try {
+                // Notify user
+                await editTelegramMessage(chatId, messageId, "⚠️ Connection interrupted. Switching to full audio processing... (This may take a minute)");
+
+                // Derive Output Key for Processor: input/CHATID_ID.ogg -> output/CHATID_ID.json
+                // The processor expects the file to simply exist in the bucket.
+                // Processor logic: const filename = key.split('/').pop();
+                const inputFilename = key.split('/').pop();
+                // Ensure output is in 'output/' prefix so S3 trigger works
+                const outputFilename = "output/" + inputFilename.replace(/\.[^/.]+$/, "") + ".json";
+
+                console.log(`Starting fallback transcription job for ${inputFilename} -> ${outputFilename}`);
+
+                const jobName = `fallback-${chatId}-${Date.now()}`;
+
+                await transcribe.send(new StartTranscriptionJobCommand({
+                    TranscriptionJobName: jobName,
+                    LanguageOptions: ["en-US", "he-IL", "de-DE", "es-ES", "fr-FR", "hi-IN"],
+                    IdentifyLanguage: true,
+                    Media: {
+                        MediaFileUri: `s3://${bucket}/${key}`
+                    },
+                    OutputBucketName: bucket,
+                    OutputKey: outputFilename,
+                }));
+
+                console.log(`Fallback job ${jobName} started successfully.`);
+                // Do NOT delete the input file here. The processor will handle it when the job completes.
+
+            } catch (fallbackError) {
+                console.error("Critical: Fallback processing also failed:", fallbackError);
+                await editTelegramMessage(chatId, messageId, "❌ Error processing transcription (Fallback failed).");
+            }
+
+        } else {
+            await editTelegramMessage(chatId, messageId, "❌ Error processing transcription.");
+        }
     }
 };
 
