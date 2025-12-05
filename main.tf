@@ -154,7 +154,7 @@ resource "aws_lambda_function" "webhook" {
   role             = aws_iam_role.lambda_role.arn
   handler          = "index.handler"
   source_code_hash = data.archive_file.webhook_zip.output_base64sha256
-  runtime          = "nodejs18.x"
+  runtime          = "nodejs22.x"
   timeout          = 30
 
   environment {
@@ -199,7 +199,7 @@ resource "aws_lambda_function" "streaming_processor" {
   role             = aws_iam_role.lambda_role.arn
   handler          = "index.handler"
   source_code_hash = data.archive_file.streaming_zip.output_base64sha256
-  runtime          = "nodejs20.x"
+  runtime          = "nodejs22.x"
   timeout          = 900 # 15 minutes max
   layers           = [aws_lambda_layer_version.ffmpeg_layer.arn]
 
