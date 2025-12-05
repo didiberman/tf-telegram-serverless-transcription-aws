@@ -79,7 +79,7 @@ exports.handler = async (event) => {
 
         const command = new StartStreamTranscriptionCommand({
             IdentifyLanguage: true,
-            LanguageOptions: "en-US,he-IL",
+            LanguageOptions: "en-US,he-IL,de-DE,es-ES,fr-FR,hi-IN",
             MediaEncoding: 'pcm',
             MediaSampleRateHertz: 16000,
             AudioStream: audioStream()

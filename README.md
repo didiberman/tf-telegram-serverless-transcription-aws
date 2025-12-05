@@ -5,7 +5,7 @@ This project deploys a fully serverless Telegram bot that transcribes Voice Note
 ## ✨ Features
 - **Real-time Transcription Feedback**: See the text appear chunk-by-chunk as the system processes your voice note (smoother UX than waiting for the end).
 - **Batch Processing**: Handles uploaded audio files (MP3, WAV, etc.).
-- **Automatic Language Detection**: Supports English and Hebrew (easily extensible).
+- **Automatic Language Detection**: Supports English, Hebrew, German, Spanish, French, and Hindi (you can easily add more in `src/streaming/index.js`).
 - **Usage Stats**: Tracks your usage (duration, language) in DynamoDB.
 - **Admin Control**: Whitelist-based access control.
 - **100% Serverless**: Uses AWS Lambda, S3, DynamoDB, and Transcribe. No servers to manage!
