@@ -3,30 +3,24 @@ const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
 const { TranscribeClient, StartTranscriptionJobCommand } = require('@aws-sdk/client-transcribe');
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, UpdateCommand, GetCommand, ScanCommand } = require('@aws-sdk/lib-dynamodb');
+const { LambdaClient, InvokeCommand } = require('@aws-sdk/client-lambda');
 
 const s3 = new S3Client();
 const transcribe = new TranscribeClient();
 const ddbClient = new DynamoDBClient();
 const ddbDocClient = DynamoDBDocumentClient.from(ddbClient);
+const lambda = new LambdaClient();
 
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const BUCKET_NAME = process.env.BUCKET_NAME;
 const USAGE_TABLE = process.env.USAGE_TABLE;
 const ADMIN_USER = process.env.ADMIN_USERNAME;
-const SECRET_TOKEN = process.env.TELEGRAM_SECRET_TOKEN;
+const STREAMING_FUNCTION_NAME = process.env.STREAMING_FUNCTION_NAME;
 
 exports.handler = async (event) => {
     console.log('Received event:', JSON.stringify(event));
 
     try {
-        // Security Check
-        const receivedToken = event.headers['x-telegram-bot-api-secret-token'] || event.headers['X-Telegram-Bot-Api-Secret-Token'];
-        if (receivedToken !== SECRET_TOKEN) {
-            console.warn(`Webhook security check failed. Received: "${receivedToken}"`);
-            return { statusCode: 403, body: 'Forbidden' };
-        }
-        console.log('Webhook security check passed.');
-
         const body = JSON.parse(event.body);
 
         // Handle Telegram "pre-checkout" or other service messages if needed
@@ -81,10 +75,13 @@ exports.handler = async (event) => {
             const command = parts[0];
             const arg = parts[1] ? parts[1].replace('@', '') : null;
 
+            console.log(`Processing command: '${command}' from user: '${username}'`);
+            console.log(`Admin User: '${ADMIN_USER}', Match: ${username === ADMIN_USER}`);
+
             if (command === '/add' && username === ADMIN_USER && arg) {
                 allowedUsers.add(arg);
                 await updateAllowlist(Array.from(allowedUsers));
-                await sendTelegramMessage(chatId, `User @${arg} added.`);
+                await sendTelegramMessage(chatId, `User @${arg.replace(/_/g, '\\_')} added.`);
                 return { statusCode: 200, body: 'OK' };
             }
 
@@ -92,16 +89,19 @@ exports.handler = async (event) => {
                 if (allowedUsers.has(arg)) {
                     allowedUsers.delete(arg);
                     await updateAllowlist(Array.from(allowedUsers));
-                    await sendTelegramMessage(chatId, `User @${arg} revoked.`);
+                    await sendTelegramMessage(chatId, `User @${arg.replace(/_/g, '\\_')} revoked.`);
                 } else {
-                    await sendTelegramMessage(chatId, `User @${arg} is not in the allowlist.`);
+                    await sendTelegramMessage(chatId, `User @${arg.replace(/_/g, '\\_')} is not in the allowlist.`);
                 }
                 return { statusCode: 200, body: 'OK' };
             }
 
             if (command === '/list' && username === ADMIN_USER) {
-                const list = Array.from(allowedUsers).map(u => `@${u}`).join('\n');
-                await sendTelegramMessage(chatId, `📝 *Allowed Users:*\n${list}`);
+                console.log('Allowed users set:', Array.from(allowedUsers));
+                const list = Array.from(allowedUsers).map(u => `@${u.replace(/_/g, '\\_')}`).join('\n');
+                console.log('Sending list message:', list);
+                const res = await sendTelegramMessage(chatId, `📝 *Allowed Users:*\n${list}`);
+                console.log('Telegram response:', JSON.stringify(res));
                 return { statusCode: 200, body: 'OK' };
             }
 
@@ -128,7 +128,7 @@ exports.handler = async (event) => {
 
         // 3. Check permissions
         if (!allowedUsers.has(username)) {
-            await sendTelegramMessage(chatId, "Sorry, you need to ask the owner for permission to use this bot (Transcription costs a bit of $$)");
+            await sendTelegramMessage(chatId, "Sorry, you need to ask Didi for permission to use this bot (Transcription costs a bit of $$)");
             return { statusCode: 200, body: 'Unauthorized' };
         }
 
@@ -166,26 +166,57 @@ exports.handler = async (event) => {
         }));
         console.log('Upload complete.');
 
-        // 6. Start Transcribe Job
-        const jobName = `${chatId}_${fileUniqueId}-${Date.now()}`;
-        const outputKey = `output/${chatId}_${fileUniqueId}.json`;
-        console.log(`Starting Transcribe job: ${jobName}, Output: ${outputKey}`);
+        // 6. Decide: Streaming or Batch?
+        const isVoiceNote = !!body.message.voice;
 
-        await transcribe.send(new StartTranscriptionJobCommand({
-            TranscriptionJobName: jobName,
-            // LanguageCode: 'he-IL', // REMOVED: Cannot set both LanguageCode and IdentifyLanguage
-            IdentifyLanguage: true,
-            Media: {
-                MediaFileUri: `s3://${BUCKET_NAME}/${s3Key}`
-            },
-            OutputBucketName: BUCKET_NAME,
-            OutputKey: outputKey
-        }));
-        console.log('Transcribe job started.');
+        if (isVoiceNote && STREAMING_FUNCTION_NAME) {
+            console.log('Detected Voice Note. Initiating Streaming Transcription...');
 
-        await sendTelegramMessage(chatId, "Transcription started... 🎙️");
+            // Send initial message to get ID
+            const sentMsg = await sendTelegramMessage(chatId, "🎧 Processing...");
+            const messageId = sentMsg.result.message_id;
 
-        return { statusCode: 200, body: 'OK' };
+            // Invoke Streaming Lambda
+            const payload = JSON.stringify({
+                bucket: BUCKET_NAME,
+                key: s3Key,
+                chatId: chatId,
+                messageId: messageId,
+                startTime: Date.now()
+            });
+
+            await lambda.send(new InvokeCommand({
+                FunctionName: STREAMING_FUNCTION_NAME,
+                InvocationType: 'Event', // Async
+                Payload: payload
+            }));
+
+            console.log('Streaming Lambda invoked.');
+            return { statusCode: 200, body: 'OK' };
+
+        } else {
+            // Fallback to Batch
+            console.log('Detected Audio File (not Voice Note) or Streaming Disabled. Using Batch...');
+
+            const jobName = `${chatId}_${fileUniqueId}-${Date.now()}`;
+            const outputKey = `output/${chatId}_${fileUniqueId}.json`;
+            console.log(`Starting Transcribe job: ${jobName}, Output: ${outputKey}`);
+
+            await transcribe.send(new StartTranscriptionJobCommand({
+                TranscriptionJobName: jobName,
+                IdentifyLanguage: true,
+                Media: {
+                    MediaFileUri: `s3://${BUCKET_NAME}/${s3Key}`
+                },
+                OutputBucketName: BUCKET_NAME,
+                OutputKey: outputKey
+            }));
+            console.log('Transcribe job started.');
+
+            await sendTelegramMessage(chatId, "Transcription started... 🎙️");
+
+            return { statusCode: 200, body: 'OK' };
+        }
 
     } catch (error) {
         console.error('Error in webhook:', error);
@@ -240,29 +271,29 @@ async function sendStats(chatId) {
         msg += `📝 Transcriptions: ${getVal(global, 'total_transcriptions')}\n\n`;
 
         msg += `🌍 *Languages*\n`;
-        const rawLangs = global.seconds_by_language || {};
-        const rawCounts = global.transcriptions_by_language || {};
+        const langs = global.seconds_by_language || {};
+        const aggregatedLangs = {};
 
-        // Aggregate by normalized language
-        const aggLangs = {};
-        const aggCounts = {};
+        for (const [lang, sec] of Object.entries(langs)) {
+            const family = lang.split('-')[0];
+            const count = global.transcriptions_by_language?.[lang] || 0;
 
-        for (const [lang, sec] of Object.entries(rawLangs)) {
-            const norm = normalizeLanguage(lang);
-            aggLangs[norm] = (aggLangs[norm] || 0) + sec;
-            aggCounts[norm] = (aggCounts[norm] || 0) + (rawCounts[lang] || 0);
+            if (!aggregatedLangs[family]) {
+                aggregatedLangs[family] = { seconds: 0, count: 0 };
+            }
+            aggregatedLangs[family].seconds += sec;
+            aggregatedLangs[family].count += count;
         }
 
-        for (const [lang, sec] of Object.entries(aggLangs)) {
-            const count = aggCounts[lang] || 0;
-            msg += `- ${lang}: ${formatDur(sec)} (${count})\n`;
+        for (const [lang, data] of Object.entries(aggregatedLangs)) {
+            msg += `- ${lang}: ${formatDur(data.seconds)} (${data.count})\n`;
         }
 
         msg += `\n👥 *Top Users*\n`;
         // Sort by duration desc
         users.sort((a, b) => getVal(b, 'total_seconds') - getVal(a, 'total_seconds'));
         for (const u of users.slice(0, 5)) { // Top 5
-            const name = u.username ? `@${u.username}` : (u.first_name || 'Unknown');
+            const name = u.username ? `@${u.username.replace(/_/g, '\\_')}` : (u.first_name ? u.first_name.replace(/_/g, '\\_') : 'Unknown');
             msg += `- ${name}: ${formatDur(getVal(u, 'total_seconds'))} (${getVal(u, 'total_kbytes')} KB)\n`;
         }
 
@@ -319,9 +350,4 @@ function downloadFile(url) {
             res.on('end', () => resolve(Buffer.concat(data)));
         }).on('error', reject);
     });
-}
-
-function normalizeLanguage(code) {
-    if (!code) return "UNKNOWN";
-    return code.split('-')[0].toUpperCase();
 }

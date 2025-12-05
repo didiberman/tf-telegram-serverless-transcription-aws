@@ -1,8 +1,4 @@
-# Telegram Bot Token (Get this from @BotFather)
-telegram_bot_token = "123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
-
-# Your Telegram Username (without @) - this user will be the admin
-telegram_admin_username = "your_username"
-
-# Unique name for the S3 bucket where voice files and transcriptions will be stored
-bucket_name = "my-unique-transcription-bucket-name"
+telegram_bot_token      = "123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
+telegram_admin_username = "your_telegram_username"
+bucket_name             = "unique-bucket-name-12345"
+aws_region              = "us-east-1"

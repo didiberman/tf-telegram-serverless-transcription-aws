@@ -1,6 +1,5 @@
 resource "aws_s3_bucket" "transcribe_bucket" {
-  bucket        = var.bucket_name
-  force_destroy = true
+  bucket = "diditranscribebot"
 }
 
 # --- IAM for Lambda ---
@@ -21,6 +20,8 @@ resource "aws_iam_role" "lambda_role" {
     ]
   })
 }
+
+
 
 resource "aws_dynamodb_table" "usage_table" {
   name           = "transcription_usage"
@@ -67,7 +68,8 @@ resource "aws_iam_role_policy" "lambda_policy" {
         Action = [
           "transcribe:StartTranscriptionJob",
           "transcribe:GetTranscriptionJob",
-          "transcribe:ListTranscriptionJobs"
+          "transcribe:ListTranscriptionJobs",
+          "transcribe:StartStreamTranscription"
         ]
         Resource = "*"
       },
@@ -80,6 +82,11 @@ resource "aws_iam_role_policy" "lambda_policy" {
           "dynamodb:Scan"
         ]
         Resource = aws_dynamodb_table.usage_table.arn
+      },
+      {
+        Effect = "Allow"
+        Action = "lambda:InvokeFunction"
+        Resource = "*"
       }
     ]
   })
@@ -100,6 +107,48 @@ data "archive_file" "processor_zip" {
   output_path = "${path.module}/processor.zip"
 }
 
+data "archive_file" "streaming_zip" {
+  type        = "zip"
+  source_dir  = "${path.module}/src/streaming"
+  output_path = "${path.module}/streaming.zip"
+}
+
+# --- FFmpeg Layer ---
+
+resource "null_resource" "download_ffmpeg" {
+  triggers = {
+    always_run = timestamp()
+  }
+
+  provisioner "local-exec" {
+    command = <<EOT
+      mkdir -p ${path.module}/layers/ffmpeg/bin
+      if [ ! -f "${path.module}/layers/ffmpeg/bin/ffmpeg" ]; then
+        echo "Downloading FFmpeg..."
+        curl -L https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz -o ffmpeg.tar.xz
+        tar -xf ffmpeg.tar.xz
+        mv ffmpeg-*-amd64-static/ffmpeg ${path.module}/layers/ffmpeg/bin/
+        rm -rf ffmpeg.tar.xz ffmpeg-*-amd64-static
+      fi
+    EOT
+  }
+}
+
+data "archive_file" "ffmpeg_layer_zip" {
+  type        = "zip"
+  source_dir  = "${path.module}/layers/ffmpeg"
+  output_path = "${path.module}/ffmpeg_layer.zip"
+  depends_on  = [null_resource.download_ffmpeg]
+}
+
+resource "aws_lambda_layer_version" "ffmpeg_layer" {
+  filename            = data.archive_file.ffmpeg_layer_zip.output_path
+  layer_name          = "ffmpeg_layer"
+  description         = "Static FFmpeg binary"
+  compatible_runtimes = ["nodejs18.x", "nodejs20.x", "nodejs22.x"]
+  source_code_hash    = data.archive_file.ffmpeg_layer_zip.output_base64sha256
+}
+
 
 
 # Webhook Lambda
@@ -109,16 +158,16 @@ resource "aws_lambda_function" "webhook" {
   role             = aws_iam_role.lambda_role.arn
   handler          = "index.handler"
   source_code_hash = data.archive_file.webhook_zip.output_base64sha256
-  runtime          = "nodejs22.x"
+  runtime          = "nodejs18.x"
   timeout          = 30
 
   environment {
     variables = {
-      TELEGRAM_TOKEN = var.telegram_bot_token
-      BUCKET_NAME    = aws_s3_bucket.transcribe_bucket.id
-      USAGE_TABLE    = aws_dynamodb_table.usage_table.name
-      ADMIN_USERNAME        = var.telegram_admin_username
-      TELEGRAM_SECRET_TOKEN = random_password.telegram_secret_token.result
+      TELEGRAM_TOKEN          = var.telegram_bot_token
+      BUCKET_NAME             = aws_s3_bucket.transcribe_bucket.id
+      USAGE_TABLE             = aws_dynamodb_table.usage_table.name
+      ADMIN_USERNAME          = var.telegram_admin_username
+      STREAMING_FUNCTION_NAME = aws_lambda_function.streaming_processor.function_name
     }
   }
 }
@@ -147,6 +196,25 @@ resource "aws_lambda_function" "processor" {
   }
 }
 
+# Streaming Processor Lambda
+resource "aws_lambda_function" "streaming_processor" {
+  filename         = data.archive_file.streaming_zip.output_path
+  function_name    = "transcribe_bot_streaming_processor"
+  role             = aws_iam_role.lambda_role.arn
+  handler          = "index.handler"
+  source_code_hash = data.archive_file.streaming_zip.output_base64sha256
+  runtime          = "nodejs20.x"
+  timeout          = 900 # 15 minutes max
+  layers           = [aws_lambda_layer_version.ffmpeg_layer.arn]
+
+  environment {
+    variables = {
+      TELEGRAM_TOKEN = var.telegram_bot_token
+      USAGE_TABLE    = aws_dynamodb_table.usage_table.name
+    }
+  }
+}
+
 # S3 Trigger for Processor
 resource "aws_lambda_permission" "allow_s3" {
   statement_id  = "AllowExecutionFromS3"
@@ -155,6 +223,7 @@ resource "aws_lambda_permission" "allow_s3" {
   principal     = "s3.amazonaws.com"
   source_arn    = aws_s3_bucket.transcribe_bucket.arn
 }
+
 
 resource "aws_s3_bucket_notification" "bucket_notification" {
   bucket = aws_s3_bucket.transcribe_bucket.id
@@ -173,10 +242,7 @@ resource "aws_s3_bucket_notification" "bucket_notification" {
 
 # --- Telegram Webhook Automation ---
 
-resource "random_password" "telegram_secret_token" {
-  length  = 32
-  special = false
-}
+
 
 resource "null_resource" "telegram_webhook" {
   triggers = {
@@ -188,7 +254,7 @@ resource "null_resource" "telegram_webhook" {
 
   # Set the webhook on apply
   provisioner "local-exec" {
-    command = "curl -s -X POST https://api.telegram.org/bot${var.telegram_bot_token}/setWebhook?url=${aws_lambda_function_url.webhook_url.function_url}&secret_token=${random_password.telegram_secret_token.result}"
+    command = "curl -s -X POST https://api.telegram.org/bot${var.telegram_bot_token}/setWebhook?url=${aws_lambda_function_url.webhook_url.function_url}"
   }
 
   # Remove the webhook on destroy
@@ -197,3 +263,4 @@ resource "null_resource" "telegram_webhook" {
     command = "curl -s -X POST https://api.telegram.org/bot${self.triggers.telegram_token}/deleteWebhook"
   }
 }
+

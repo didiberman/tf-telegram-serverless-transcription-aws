@@ -1,104 +1,151 @@
-# Serverless Telegram Transcription Bot
+# Serverless Telegram Transcription Bot 🎙️🤖
 
-A 100% serverless, event-driven Telegram bot that transcribes voice notes using AWS Lambda and AWS Transcribe.
+This project deploys a fully serverless Telegram bot that transcribes Voice Notes and Audio Files using AWS Transcribe.
 
-## Features
+## ✨ Features
+- **Real-time Streaming Transcription**: See the text appear as you speak (for Voice Notes).
+- **Batch Processing**: Handles uploaded audio files (MP3, WAV, etc.).
+- **Automatic Language Detection**: Supports English and Hebrew (easily extensible).
+- **Usage Stats**: Tracks your usage (duration, language) in DynamoDB.
+- **Admin Control**: Whitelist-based access control.
+- **100% Serverless**: Uses AWS Lambda, S3, DynamoDB, and Transcribe. No servers to manage!
 
--   **Serverless**: Runs on AWS Lambda. Zero idle costs.
--   **Event-Driven**: Uses S3 events to trigger processing.
--   **Privacy-First**: Automatically deletes input audio and output transcripts after processing. No data is stored.
--   **Polyglot**: Automatically detects languages (English, Hebrew, Hindi, etc.).
--   **Secure**: Uses IAM Roles for internal permissions. No long-term access keys required.
--   **Usage Tracking**: Tracks total duration and stats per user in DynamoDB.
--   **Admin Commands**: Manage allowed users dynamically via Telegram commands.
--   **Secure Webhook**: Verifies a secret token on every webhook request to prevent unauthorized access.
--   **Modern Runtime**: Powered by Node.js 22.x.
+## 🏗️ Architecture
 
-## Architecture
+```mermaid
+graph TD
+    User((User)) -->|Voice Note| Telegram[Telegram API]
+    Telegram -->|Webhook| WebhookLambda[Webhook Lambda]
+    
+    subgraph AWS Cloud
+        WebhookLambda -->|Upload Audio| S3[S3 Bucket]
+        WebhookLambda -->|Invoke (Streaming)| StreamingLambda[Streaming Processor Lambda]
+        WebhookLambda -->|Start Job (Batch)| Transcribe[AWS Transcribe]
+        
+        StreamingLambda -->|Stream Audio| TranscribeStream[AWS Transcribe Streaming]
+        TranscribeStream -->|Partial Results| StreamingLambda
+        StreamingLambda -->|Update Message| Telegram
+        
+        Transcribe -->|Output JSON| S3
+        S3 -->|Trigger| ProcessorLambda[Processor Lambda]
+        ProcessorLambda -->|Send Result| Telegram
+        
+        StreamingLambda -->|Update Stats| DynamoDB[(DynamoDB)]
+        ProcessorLambda -->|Update Stats| DynamoDB
+    end
+```
 
-1.  **User** sends a voice note to the Telegram Bot.
-2.  **Webhook Lambda** receives the update, verifies the **Secret Token**, checks permissions (DynamoDB), downloads the file, and uploads it to S3.
-3.  **AWS Transcribe** job is triggered automatically.
-4.  **Processor Lambda** is triggered when the transcription finishes (S3 Event).
-5.  **Processor Lambda** sends the text back to the user on Telegram, followed by a stats summary.
-6.  **Cleanup**: Both the audio file and the transcript JSON are deleted from S3.
+## 🛠️ Prerequisites
 
-## Prerequisites
+1.  **AWS Account**: You need an AWS account.
+2.  **AWS CLI**: Installed and configured with your credentials (`aws configure`).
+3.  **Terraform**: Installed (v1.0+).
+4.  **Telegram Bot**: Create a new bot via [BotFather](https://t.me/BotFather) and get the **Token**.
+5.  **FFmpeg**: (Included in repo) The streaming lambda uses a static `ffmpeg` binary.
 
--   **AWS Account**
--   **Terraform** installed
--   **Telegram Bot Token** (from @BotFather)
+## 🚀 Setup Guide (0 to 10)
 
-## Setup
+### 0. Clone the Repository
+```bash
+git clone <your-repo-url>
+cd <your-repo-name>
+```
 
-1.  **Clone the repository**:
-    ```bash
-    git clone <your-repo-url>
-    cd <your-repo-folder>
-    ```
+### 1. Initialize Terraform
+```bash
+terraform init
+```
 
-2.  **Configure AWS Credentials**:
-    Ensure you have an AWS account and have configured your credentials so Terraform can access it.
-    ```bash
-    aws configure
-    ```
-    *You will need your Access Key ID and Secret Access Key.*
+### 2. Configure Variables
+Create a `terraform.tfvars` file based on the example:
+```bash
+cp terraform.tfvars.example terraform.tfvars
+```
 
-3.  **Initialize Terraform**:
-    ```bash
-    terraform init
-    ```
+Edit `terraform.tfvars` and fill in your details:
+- `telegram_bot_token`: Your Bot Token from BotFather.
+- `telegram_admin_username`: Your Telegram username (without `@`). This user will be the admin.
+- `bucket_name`: A globally unique name for your S3 bucket (e.g., `my-transcribe-bot-123`).
+- `aws_region`: (Optional) Default is `us-east-1`.
 
-4.  **Create a `terraform.tfvars` file** (DO NOT commit this file):
-    You can copy the example file:
-    ```bash
-    cp terraform.tfvars.example terraform.tfvars
-    ```
-    Then edit `terraform.tfvars` with your values:
-    ```hcl
-    telegram_bot_token      = "YOUR_TELEGRAM_BOT_TOKEN"
-    telegram_admin_username = "your_username" # Without @
-    bucket_name             = "your-unique-bucket-name"
-    ```
+### 3. Review the Plan
+See what resources will be created:
+```bash
+terraform plan
+```
 
-5.  **Deploy**:
-    ```bash
-    terraform apply
-    ```
-    Terraform will automatically register the webhook with Telegram, including a generated secret token for security.
+### 4. Deploy! 🚀
+Create the infrastructure:
+```bash
+terraform apply
+```
+Type `yes` when prompted.
 
-## Usage
+### 5. Verify Webhook
+Terraform automatically sets the Telegram Webhook. You can verify it by visiting:
+`https://api.telegram.org/bot<YOUR_TOKEN>/getWebhookInfo`
 
-### Admin Commands
-As the admin (configured in `terraform.tfvars`), you can manage who can use the bot:
--   `/add <username>`: Add a user to the allowlist.
--   `/revoke <username>`: Remove a user.
--   `/list`: Show all allowed users.
--   `/stats`: View global usage statistics.
--   `/help`: Show available commands.
+### 6. Test It
+1.  Open your bot in Telegram.
+2.  Send `/start` (it won't do much, but good to check).
+3.  **Important**: Since you are the admin defined in `terraform.tfvars`, you are automatically authorized.
+4.  Send a **Voice Note**. You should see "🎧 Processing..." and then real-time text updates.
 
-### Transcription
-Just send a voice note to your bot! It will reply with:
-1.  The transcription text.
-2.  A stats summary (e.g., `⏱️ 45s (en-US) | 📈 Total: 120m 30s`).
+### 7. Add Other Users (Optional)
+By default, only the admin can use the bot. To add friends:
+```
+/add friend_username
+```
+To remove them:
+```
+/revoke friend_username
+```
+To list allowed users:
+```
+/list
+```
 
-## Cost Estimation
+### 8. Check Stats
+Send `/stats` to see your usage (Total minutes, languages, etc.).
 
-This project is designed to be extremely low cost, often free for personal use.
+### 9. Troubleshooting
+- **No response?** Check AWS CloudWatch Logs for the `transcribe_bot_webhook` Lambda.
+- **"Stream too big"?** The code handles chunking, but if you see this, report an issue.
+- **Wrong Language?** Currently optimized for English/Hebrew. You can change `LanguageOptions` in `src/streaming/index.js`.
 
-*   **AWS Lambda**: Free Tier includes **400,000 GB-seconds per month**.
-    *   *Estimate*: For personal use (e.g., 100 voice notes/month), you will stay well within the Free Tier.
-    *   *Overages*: ~$0.20 per 1 million requests.
-*   **AWS Transcribe**: Free Tier includes **60 minutes per month** for the first 12 months.
-    *   *Estimate*: If you transcribe < 60 mins/month, it's free.
-    *   *Overages*: ~$0.024 per minute (~$1.44 per hour).
-*   **Amazon DynamoDB**: Free Tier includes **25 GB of storage** and 25 RCU/WCU.
-    *   *Estimate*: Storing simple usage stats is negligible. You will likely never pay for this.
-*   **Amazon S3**: Standard rates apply.
-    *   *Estimate*: Since files are deleted immediately after processing, storage costs are effectively zero. You only pay for API requests (negligible).
+### 10. Cleanup (Destroy)
+To remove all resources and stop paying for them:
+```bash
+# First, empty the S3 bucket (Terraform won't delete a non-empty bucket)
+aws s3 rm s3://<your-bucket-name> --recursive
 
-**Total Estimated Cost**: **$0.00/month** (within Free Tier limits).
+# Then destroy infrastructure
+terraform destroy
+```
 
-## License
+## � Costs
 
+This project uses AWS services that have generous Free Tier limits.
+
+### 🆓 AWS Free Tier (First 12 Months)
+- **AWS Transcribe**: **60 minutes** of audio per month.
+- **AWS Lambda**: **400,000 GB-seconds** of compute time per month.
+- **Amazon S3**: **5 GB** of standard storage.
+- **DynamoDB**: **25 GB** of storage and 25 RCU/WCU (Always Free).
+
+### 💸 Standard Pricing (After Free Tier)
+*Estimates based on us-east-1 (N. Virginia)*
+
+| Service | Cost | Note |
+| :--- | :--- | :--- |
+| **AWS Transcribe** | **$0.024** per minute | The main cost driver. 1 hour = ~$1.44. |
+| **AWS Lambda** | ~$0.20 per 1M requests | Very cheap for this use case. |
+| **Amazon S3** | $0.023 per GB | Negligible for voice notes (deleted after processing). |
+| **DynamoDB** | Pay-per-request | Negligible for simple metadata storage. |
+
+**Example**: If you transcribe **2 hours** (120 mins) of audio per month:
+- **Free Tier**: $1.44 (First 60 mins free, pay for next 60).
+- **Standard**: **~$2.88** per month.
+
+## �📜 License
 MIT

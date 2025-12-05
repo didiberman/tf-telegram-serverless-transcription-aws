@@ -42,7 +42,7 @@ exports.handler = async (event) => {
                     transcriptText = transcriptJson.results.transcripts[0].transcript;
                 }
                 if (transcriptJson.results.language_code) {
-                    languageCode = normalizeLanguage(transcriptJson.results.language_code);
+                    languageCode = transcriptJson.results.language_code.split('-')[0];
                 }
                 if (transcriptJson.results.items && transcriptJson.results.items.length > 0) {
                     // Iterate backwards to find the last item with an end_time (ignoring punctuation)
@@ -60,7 +60,8 @@ exports.handler = async (event) => {
                     console.log("No items found in transcriptJson.results");
                 }
             }
-            console.log(`Extracted text: ${transcriptText.substring(0, 50)}...`);
+            const firstWord = transcriptText.trim().split(' ')[0];
+            console.log(`Extracted text: "${firstWord}..." (Redacted for privacy)`);
             console.log(`Stats - Language: ${languageCode}, Duration: ${duration}s`);
 
             // 3. Find who to send it to.
@@ -229,7 +230,40 @@ function streamToString(stream) {
     });
 }
 
-function sendTelegramMessage(chatId, text) {
+async function sendTelegramMessage(chatId, text) {
+    const MAX_LENGTH = 4000;
+
+    if (text.length <= MAX_LENGTH) {
+        return sendSingleTelegramMessage(chatId, text);
+    }
+
+    let remaining = text;
+    while (remaining.length > 0) {
+        let chunk;
+        if (remaining.length <= MAX_LENGTH) {
+            chunk = remaining;
+            remaining = '';
+        } else {
+            // Try to split at the last newline within the limit
+            let splitIndex = remaining.lastIndexOf('\n', MAX_LENGTH);
+
+            if (splitIndex === -1) {
+                // No newline found, force split at MAX_LENGTH
+                splitIndex = MAX_LENGTH;
+            } else {
+                // Include the newline in the current chunk
+                splitIndex += 1;
+            }
+
+            chunk = remaining.substring(0, splitIndex);
+            remaining = remaining.substring(splitIndex);
+        }
+
+        await sendSingleTelegramMessage(chatId, chunk);
+    }
+}
+
+function sendSingleTelegramMessage(chatId, text) {
     return new Promise((resolve, reject) => {
         const data = JSON.stringify({ chat_id: chatId, text: text });
         const options = {
@@ -250,9 +284,4 @@ function sendTelegramMessage(chatId, text) {
         req.write(data);
         req.end();
     });
-}
-
-function normalizeLanguage(code) {
-    if (!code) return "UNKNOWN";
-    return code.split('-')[0].toUpperCase();
 }

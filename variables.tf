@@ -4,12 +4,18 @@ variable "telegram_bot_token" {
   sensitive   = true
 }
 
-variable "bucket_name" {
-  description = "The unique name for the S3 bucket"
+variable "telegram_admin_username" {
+  description = "The Telegram Username of the Admin (without @)"
   type        = string
 }
 
-variable "telegram_admin_username" {
-  description = "The Telegram username of the admin (without @)"
+variable "bucket_name" {
+  description = "The name of the S3 bucket (must be globally unique)"
   type        = string
+}
+
+variable "aws_region" {
+  description = "AWS Region"
+  type        = string
+  default     = "us-east-1"
 }
