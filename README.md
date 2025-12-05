@@ -3,7 +3,7 @@
 This project deploys a fully serverless Telegram bot that transcribes Voice Notes and Audio Files using AWS Transcribe.
 
 ## ✨ Features
-- **Real-time Streaming Transcription**: See the text appear as you speak (for Voice Notes).
+- **Real-time Transcription Feedback**: See the text appear chunk-by-chunk as the system processes your voice note (smoother UX than waiting for the end).
 - **Batch Processing**: Handles uploaded audio files (MP3, WAV, etc.).
 - **Automatic Language Detection**: Supports English and Hebrew (easily extensible).
 - **Usage Stats**: Tracks your usage (duration, language) in DynamoDB.
@@ -19,8 +19,8 @@ graph TD
     
     subgraph AWS Cloud
         WebhookLambda -->|Upload Audio| S3[S3 Bucket]
-        WebhookLambda -->|Invoke (Streaming)| StreamingLambda[Streaming Processor Lambda]
-        WebhookLambda -->|Start Job (Batch)| Transcribe[AWS Transcribe]
+        WebhookLambda -->|Invoke Streaming| StreamingLambda[Streaming Processor Lambda]
+        WebhookLambda -->|Start Job Batch| Transcribe[AWS Transcribe]
         
         StreamingLambda -->|Stream Audio| TranscribeStream[AWS Transcribe Streaming]
         TranscribeStream -->|Partial Results| StreamingLambda
