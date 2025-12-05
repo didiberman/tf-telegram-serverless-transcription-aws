@@ -169,8 +169,8 @@ exports.handler = async (event) => {
         // 6. Decide: Streaming or Batch?
         const isVoiceNote = !!body.message.voice;
 
-        if (isVoiceNote && STREAMING_FUNCTION_NAME) {
-            console.log('Detected Voice Note. Initiating Streaming Transcription...');
+        if (STREAMING_FUNCTION_NAME) {
+            console.log('Detected Audio. Initiating Streaming Transcription...');
 
             // Send initial message to get ID
             const sentMsg = await sendTelegramMessage(chatId, "🎧 Processing...");
