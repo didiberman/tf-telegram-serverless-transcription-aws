@@ -8,6 +8,7 @@ This project deploys a fully serverless Telegram bot that transcribes Voice Note
 - **Automatic Language Detection**: Supports English and Hebrew (easily configurable in `src/streaming/index.js`).
 - **Usage Stats**: Tracks your usage (duration, language) in DynamoDB.
 - **Admin Control**: Whitelist-based access control.
+- **Secure Webhook**: Uses Telegram's secret token validation to ensure only legitimate requests are processed.
 - **100% Serverless**: Uses AWS Lambda, S3, DynamoDB, and Transcribe. No servers to manage!
 
 ## 🏗️ Architecture

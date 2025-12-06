@@ -4,6 +4,11 @@ resource "aws_s3_bucket" "transcribe_bucket" {
 
 # --- IAM for Lambda ---
 
+resource "random_password" "webhook_secret" {
+  length  = 32
+  special = false
+}
+
 resource "aws_iam_role" "lambda_role" {
   name = "transcribe_bot_lambda_role"
 
@@ -164,6 +169,7 @@ resource "aws_lambda_function" "webhook" {
       USAGE_TABLE             = aws_dynamodb_table.usage_table.name
       ADMIN_USERNAME          = var.telegram_admin_username
       STREAMING_FUNCTION_NAME = aws_lambda_function.streaming_processor.function_name
+      TELEGRAM_WEBHOOK_SECRET = random_password.webhook_secret.result
     }
   }
 }
@@ -245,13 +251,15 @@ resource "null_resource" "telegram_webhook" {
   triggers = {
     # Always update the webhook when the function URL changes
     function_url = aws_lambda_function_url.webhook_url.function_url
+    # Update if the secret token changes
+    secret_token = random_password.webhook_secret.result
     # Store token in triggers to be accessible during destroy
     telegram_token = var.telegram_bot_token
   }
 
   # Set the webhook on apply
   provisioner "local-exec" {
-    command = "curl -s -X POST https://api.telegram.org/bot${var.telegram_bot_token}/setWebhook?url=${aws_lambda_function_url.webhook_url.function_url}"
+    command = "curl -s -X POST \"https://api.telegram.org/bot${var.telegram_bot_token}/setWebhook?url=${aws_lambda_function_url.webhook_url.function_url}&secret_token=${random_password.webhook_secret.result}\""
   }
 
   # Remove the webhook on destroy

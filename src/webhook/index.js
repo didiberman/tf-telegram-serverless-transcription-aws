@@ -16,9 +16,17 @@ const BUCKET_NAME = process.env.BUCKET_NAME;
 const USAGE_TABLE = process.env.USAGE_TABLE;
 const ADMIN_USER = process.env.ADMIN_USERNAME;
 const STREAMING_FUNCTION_NAME = process.env.STREAMING_FUNCTION_NAME;
+const WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET;
 
 exports.handler = async (event) => {
     console.log('Received event:', JSON.stringify(event));
+
+    // Validate Telegram secret token
+    const receivedSecret = event.headers?.['x-telegram-bot-api-secret-token'];
+    if (WEBHOOK_SECRET && receivedSecret !== WEBHOOK_SECRET) {
+        console.warn('Invalid secret token. Rejecting request.');
+        return { statusCode: 403, body: 'Forbidden' };
+    }
 
     try {
         const body = JSON.parse(event.body);
