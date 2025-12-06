@@ -8,3 +8,6 @@ processor.zip
 terraform.tfstate
 .terraform.lock.hcl
 terraform.tfstate.backup
+ffmpeg_layer.zip
+layers/ffmpeg/bin/ffmpeg
+streaming.zip

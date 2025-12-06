@@ -5,7 +5,7 @@ This project deploys a fully serverless Telegram bot that transcribes Voice Note
 ## ✨ Features
 - **Real-time Transcription Feedback**: See the text appear chunk-by-chunk as the system processes your voice note (smoother UX than waiting for the end).
 - **Batch Processing**: Handles uploaded audio files (MP3, WAV, etc.).
-- **Automatic Language Detection**: Supports English, Hebrew, German, Spanish, French, and Hindi (you can easily add more in `src/streaming/index.js`).
+- **Automatic Language Detection**: Supports English and Hebrew (easily configurable in `src/streaming/index.js`).
 - **Usage Stats**: Tracks your usage (duration, language) in DynamoDB.
 - **Admin Control**: Whitelist-based access control.
 - **100% Serverless**: Uses AWS Lambda, S3, DynamoDB, and Transcribe. No servers to manage!
@@ -16,20 +16,19 @@ This project deploys a fully serverless Telegram bot that transcribes Voice Note
 graph TD
     User((User)) -->|Voice Note| Telegram[Telegram API]
     Telegram -->|Webhook| WebhookLambda[Webhook Lambda]
-    
+
     subgraph AWS Cloud
-        WebhookLambda -->|Upload Audio| S3[S3 Bucket]
-        WebhookLambda -->|Invoke Streaming| StreamingLambda[Streaming Processor Lambda]
-        WebhookLambda -->|Start Job Batch| Transcribe[AWS Transcribe]
-        
-        StreamingLambda -->|Stream Audio| TranscribeStream[AWS Transcribe Streaming]
+        WebhookLambda -->|Invoke w/ URL| StreamingLambda[Streaming Processor Lambda]
+        WebhookLambda -->|Upload Backup| S3[S3 Bucket]
+
+        StreamingLambda -->|Stream from URL| TranscribeStream[AWS Transcribe Streaming]
         TranscribeStream -->|Partial Results| StreamingLambda
         StreamingLambda -->|Update Message| Telegram
-        
+
         Transcribe -->|Output JSON| S3
         S3 -->|Trigger| ProcessorLambda[Processor Lambda]
         ProcessorLambda -->|Send Result| Telegram
-        
+
         StreamingLambda -->|Update Stats| DynamoDB[(DynamoDB)]
         ProcessorLambda -->|Update Stats| DynamoDB
     end

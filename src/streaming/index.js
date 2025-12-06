@@ -19,20 +19,38 @@ const USAGE_TABLE = process.env.USAGE_TABLE;
 exports.handler = async (event) => {
     console.log('Received event:', JSON.stringify(event));
 
-    const { bucket, key, chatId, messageId, startTime } = event;
+    const { bucket, key, chatId, messageId, startTime, fileUrl } = event; // <--- Extract fileUrl
 
-    if (!bucket || !key || !chatId) {
+    // ... validation ...
+    if ((!fileUrl && (!bucket || !key)) || !chatId) {
         console.error('Missing required parameters');
         return;
     }
 
     try {
-        // 1. Get Audio Stream from S3
-        console.log(`Fetching file: ${key} from bucket: ${bucket}`);
-        const s3Response = await s3.send(new GetObjectCommand({
-            Bucket: bucket,
-            Key: key
-        }));
+        let inputStream;
+
+        // 1. Get Audio Stream
+        if (fileUrl) {
+            console.log(`Streaming directly from URL: ${fileUrl}`);
+            // Helper to get stream from URL
+            inputStream = await new Promise((resolve, reject) => {
+                https.get(fileUrl, (res) => {
+                    if (res.statusCode !== 200) {
+                        reject(new Error(`Failed to fetch file from URL: ${res.statusCode}`));
+                        return;
+                    }
+                    resolve(res);
+                }).on('error', reject);
+            });
+        } else {
+            console.log(`Fetching file: ${key} from bucket: ${bucket}`);
+            const s3Response = await s3.send(new GetObjectCommand({
+                Bucket: bucket,
+                Key: key
+            }));
+            inputStream = s3Response.Body;
+        }
 
         // 2. Setup FFmpeg for Conversion (OGG -> PCM)
         // When using a Layer, the binary is at /opt/bin/ffmpeg
@@ -47,8 +65,8 @@ exports.handler = async (event) => {
             'pipe:1'                  // Output to stdout
         ]);
 
-        // Pipe S3 stream to FFmpeg stdin
-        s3Response.Body.pipe(ffmpeg.stdin);
+        // Pipe stream to FFmpeg stdin
+        inputStream.pipe(ffmpeg.stdin);
 
         // Handle FFmpeg errors
         ffmpeg.stderr.on('data', (data) => {
@@ -81,7 +99,7 @@ exports.handler = async (event) => {
 
         const command = new StartStreamTranscriptionCommand({
             IdentifyLanguage: true,
-            LanguageOptions: "en-US,he-IL,de-DE,es-ES,fr-FR,hi-IN",
+            LanguageOptions: "en-US,he-IL",
             MediaEncoding: 'pcm',
             MediaSampleRateHertz: 16000,
             AudioStream: audioStream()
@@ -208,7 +226,7 @@ exports.handler = async (event) => {
 
                 await transcribe.send(new StartTranscriptionJobCommand({
                     TranscriptionJobName: jobName,
-                    LanguageOptions: ["en-US", "he-IL", "de-DE", "es-ES", "fr-FR", "hi-IN"],
+                    LanguageOptions: ["en-US", "he-IL"],
                     IdentifyLanguage: true,
                     Media: {
                         MediaFileUri: `s3://${bucket}/${key}`
