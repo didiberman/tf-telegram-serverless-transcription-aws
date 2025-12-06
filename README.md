@@ -18,10 +18,11 @@ graph TD
     Telegram -->|Webhook| WebhookLambda[Webhook Lambda]
 
     subgraph AWS Cloud
-        WebhookLambda -->|Invoke w/ URL| StreamingLambda[Streaming Processor Lambda]
-        WebhookLambda -->|Upload Backup| S3[S3 Bucket]
+        WebhookLambda -->|Upload Audio| S3[S3 Bucket]
+        WebhookLambda -->|Invoke Streaming| StreamingLambda[Streaming Processor Lambda]
 
-        StreamingLambda -->|Stream from URL| TranscribeStream[AWS Transcribe Streaming]
+        StreamingLambda -->|Get Audio| S3
+        StreamingLambda -->|Stream Audio| TranscribeStream[AWS Transcribe Streaming]
         TranscribeStream -->|Partial Results| StreamingLambda
         StreamingLambda -->|Update Message| Telegram
 
