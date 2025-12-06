@@ -149,11 +149,25 @@ exports.handler = async (event) => {
         // 3. Get File Path from Telegram
         const fileInfo = await getTelegramFileInfo(fileId);
         const filePath = fileInfo.file_path;
-        const fileUrl = `https://api.telegram.org/file/bot${TELEGRAM_TOKEN}/${filePath}`;
 
-        // 4. Decide: Streaming or Batch?
-        const isVoiceNote = !!body.message.voice;
+        // 4. Download File
+        console.log(`Downloading file from Telegram: https://api.telegram.org/file/bot${TELEGRAM_TOKEN}/${filePath}`);
+        const fileBuffer = await downloadFile(`https://api.telegram.org/file/bot${TELEGRAM_TOKEN}/${filePath}`);
+        console.log(`File downloaded. Size: ${fileBuffer.length} bytes`);
+
+        // 5. Upload to S3
+        // Encode ChatID in the filename so the processor knows who to reply to.
         const s3Key = `input/${chatId}_${fileUniqueId}.${ext}`;
+        console.log(`Uploading to S3: ${s3Key}`);
+        await s3.send(new PutObjectCommand({
+            Bucket: BUCKET_NAME,
+            Key: s3Key,
+            Body: fileBuffer
+        }));
+        console.log('Upload complete.');
+
+        // 6. Decide: Streaming or Batch?
+        const isVoiceNote = !!body.message.voice;
 
         if (STREAMING_FUNCTION_NAME) {
             console.log('Detected Audio. Initiating Streaming Transcription...');
@@ -162,9 +176,8 @@ exports.handler = async (event) => {
             const sentMsg = await sendTelegramMessage(chatId, "🎧 Processing...");
             const messageId = sentMsg.result.message_id;
 
-            // Invoke Streaming Lambda IMMEDIATELY (Direct Relay Optimization)
+            // Invoke Streaming Lambda
             const payload = JSON.stringify({
-                fileUrl: fileUrl, // <--- New: Pass URL directly
                 bucket: BUCKET_NAME,
                 key: s3Key,
                 chatId: chatId,
@@ -178,28 +191,12 @@ exports.handler = async (event) => {
                 Payload: payload
             }));
 
-            console.log('Streaming Lambda invoked early.');
+            console.log('Streaming Lambda invoked.');
+            return { statusCode: 200, body: 'OK' };
+
         } else {
-            await sendTelegramMessage(chatId, "Transcription started... 🎙️");
-        }
-
-        // 5. Background: Upload to S3 (for Fallback/History)
-        console.log(`Downloading file from Telegram: ${fileUrl}`);
-        const fileBuffer = await downloadFile(fileUrl);
-        console.log(`File downloaded. Size: ${fileBuffer.length} bytes`);
-
-        console.log(`Uploading to S3: ${s3Key}`);
-        await s3.send(new PutObjectCommand({
-            Bucket: BUCKET_NAME,
-            Key: s3Key,
-            Body: fileBuffer
-        }));
-        console.log('Upload complete.');
-
-        if (!STREAMING_FUNCTION_NAME) {
-            // Fallback to Batch logic (only if streaming was disabled)
-            // ... existing batch logic ...
-            console.log('Streaming Disabled. Using Batch...');
+            // Fallback to Batch
+            console.log('Detected Audio File (not Voice Note) or Streaming Disabled. Using Batch...');
 
             const jobName = `${chatId}_${fileUniqueId}-${Date.now()}`;
             const outputKey = `output/${chatId}_${fileUniqueId}.json`;
@@ -215,9 +212,11 @@ exports.handler = async (event) => {
                 OutputKey: outputKey
             }));
             console.log('Transcribe job started.');
-        }
 
-        return { statusCode: 200, body: 'OK' };
+            await sendTelegramMessage(chatId, "Transcription started... 🎙️");
+
+            return { statusCode: 200, body: 'OK' };
+        }
 
     } catch (error) {
         console.error('Error in webhook:', error);

@@ -11,3 +11,4 @@ terraform.tfstate.backup
 ffmpeg_layer.zip
 layers/ffmpeg/bin/ffmpeg
 streaming.zip
+.terraform.tfstate.lock.info

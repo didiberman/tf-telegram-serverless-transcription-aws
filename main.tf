@@ -201,6 +201,7 @@ resource "aws_lambda_function" "streaming_processor" {
   source_code_hash = data.archive_file.streaming_zip.output_base64sha256
   runtime          = "nodejs22.x"
   timeout          = 900 # 15 minutes max
+  memory_size      = 1792
   layers           = [aws_lambda_layer_version.ffmpeg_layer.arn]
 
   environment {
