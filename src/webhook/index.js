@@ -54,7 +54,7 @@ exports.handler = async (event) => {
         }
 
         // 1. Fetch Allowlist
-        let allowedUsers = new Set([ADMIN_USER, 'fabiankuypers']); // Default
+        let allowedUsers = new Set([ADMIN_USER]); // Default
         if (USAGE_TABLE) {
             try {
                 const config = await ddbDocClient.send(new GetCommand({
